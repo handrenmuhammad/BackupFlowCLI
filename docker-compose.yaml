@@ -1,56 +1,44 @@
-version: '3.8'
+version: "3.8"
 
 services:
-  mongodb:
-    image: mongo:latest
+  mongo1:
+    image: mongo:7.0
+    command: [ "--replSet", "rs0", "--bind_ip_all", "--port", "27017" ]
     ports:
-      - "27017:27017"
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: guest
-      MONGO_INITDB_ROOT_PASSWORD: guest
-    volumes:
-      - mongodb_data:/data/db
-    networks:
-      - backup_network
+      - 27017:27017
 
-  postgresql:
-    image: postgres:latest
-    ports:
-      - "5432:5432"
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: guest
-      POSTGRES_DB: guest
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-    networks:
-      - backup_network
+      - ./data/mongo1:/data/db
+      - ./data/mongo1:/data/configdb
+      - "./init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js" # Mount init script
+    healthcheck:
+      test: echo "try { rs.status() } catch (err) { rs.initiate({_id:'rs0',members:[{_id:0,host:'mongo1:27017'}]}) }" | mongosh --port 27017 --quiet
+      interval: 5s
+      timeout: 30s
+      start_period: 0s
+      start_interval: 1s
+      retries: 30
 
   minio:
     image: minio/minio:latest
-    ports:
-      - "9000:9000" # API port
-      - "9001:9001" # Console port
-    environment:
-      MINIO_ROOT_USER: guest
-      MINIO_ROOT_PASSWORD: password
-    volumes:
-      - minio_data:/data
     command: server /data --console-address ":9001"
-    networks:
-      - backup_network
-    healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:9000/minio/health/live" ]
-      interval: 30s
-      timeout: 20s
-      retries: 3
+    environment:
+      - MINIO_ROOT_USER=guest
+      - MINIO_ROOT_PASSWORD=password
+    ports:
+      - 9000:9000 # API port
+      - 9001:9001 # Console port
+    volumes:
+      - ./data/minio:/data
 
-volumes:
-  mongodb_data:
-  postgres_data:
-  minio_data:
-
-
-networks:
-  backup_network:
-    driver: bridge
+  postgres:
+    image: postgres:16
+    environment:
+      - POSTGRES_PASSWORD=guest
+      - POSTGRES_USER=guest
+    ports:
+      - 5432:5432
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Spectre.Console;
 
 namespace DbBackupCLI;
 
@@ -35,23 +36,23 @@ public class MongoBackupAnalyzer : IBackupAnalyzer
 
         if (!string.IsNullOrEmpty(error))
         {
-            Console.WriteLine($"Mongorestore error output: {error}");
+            AnsiConsole.MarkupLine($"[red]Mongorestore error output: {error}[/]");
         }
 
-        Console.WriteLine("Mongorestore output:");
-        Console.WriteLine(output);
+        AnsiConsole.MarkupLine($"[yellow]Mongorestore output:[/]");
+        AnsiConsole.MarkupLine(output);
 
-        return ParseMongoRestoreOutput(error);
+        return DisplayDatabases(output);
     }
 
-    private static (string? timestamp, HashSet<string> databases) ParseMongoRestoreOutput(string output)
+    private static (string? timestamp, HashSet<string> databases) DisplayDatabases(string output)
     {
         var databaseNames = new HashSet<string>();
         string? backupTimestamp = null;
 
         foreach (var line in output.Split('\n'))
         {
-            Console.WriteLine($"Processing line: {line}");
+            AnsiConsole.MarkupLine($"[yellow]Processing line: {line}[/]");
 
             if (line.Contains("found collection"))
             {
@@ -59,7 +60,6 @@ public class MongoBackupAnalyzer : IBackupAnalyzer
                 if (timeMatch.Success && backupTimestamp == null)
                 {
                     backupTimestamp = timeMatch.Groups[1].Value;
-                    Console.WriteLine($"Found timestamp: {backupTimestamp}");
                 }
 
                 var dbMatch = System.Text.RegularExpressions.Regex.Match(line, @"found collection ([\w-]+)\.");
@@ -67,14 +67,12 @@ public class MongoBackupAnalyzer : IBackupAnalyzer
                 {
                     var dbName = dbMatch.Groups[1].Value;
                     databaseNames.Add(dbName);
-                    Console.WriteLine($"Found database: {dbName}");
                 }
             }
         }
 
-        if (!databaseNames.Any())
+        if (databaseNames.Count == 0)
         {
-            // Try alternative pattern matching if no databases found
             foreach (var line in output.Split('\n'))
             {
                 var dbMatch = System.Text.RegularExpressions.Regex.Match(line, @"restoring ([\w-]+)\.");
@@ -82,7 +80,7 @@ public class MongoBackupAnalyzer : IBackupAnalyzer
                 {
                     var dbName = dbMatch.Groups[1].Value;
                     databaseNames.Add(dbName);
-                    Console.WriteLine($"Found database (alternative pattern): {dbName}");
+                    AnsiConsole.MarkupLine($"[yellow]Found database (alternative pattern): {dbName}[/]");
                 }
             }
         }

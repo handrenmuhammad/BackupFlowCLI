@@ -25,3 +25,4 @@ _ReSharper*/
 *.swp
 *~
 .DS_Store
+data/

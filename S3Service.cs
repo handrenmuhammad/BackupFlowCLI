@@ -30,12 +30,12 @@ public class S3Service
                     BucketName = bucketName
                 };
                 await _s3Client.PutBucketAsync(putBucketRequest);
-                AnsiConsole.MarkupLine($"[green]Created S3 bucket: {bucketName}[/]");
+                AnsiConsole.MarkupLine($"[green] Created S3 bucket: {bucketName}[/]");
             }
         }
         catch (AmazonS3Exception ex)
         {
-            throw new Exception($"Failed to create S3 bucket: {ex.Message}", ex);
+            throw new Exception($"failed to create S3 bucket: {ex.Message}", ex);
         }
     }
 

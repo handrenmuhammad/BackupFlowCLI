@@ -11,6 +11,7 @@ public class MongoBackupService
     private readonly string _password;
     private readonly string _host;
     private readonly int _port;
+    private readonly bool _useConnectionString;
 
     public MongoBackupService(string host, int port, string username, string password)
     {
@@ -18,20 +19,45 @@ public class MongoBackupService
         _port = port;
         _username = username;
         _password = password;
-        _connectionString = $"mongodb://{username}:{password}@{host}:{port}";
+        _connectionString = $"mongodb://{username}:{password}@{host}:{port}/?authSource=admin&directConnection=true";
+        _useConnectionString = false;
     }
 
-    private async Task<bool> IsReplicaSetMember()
+    public MongoBackupService(string connectionString)
+    {
+        _connectionString = connectionString;
+        _useConnectionString = true;
+    }
+
+    public async Task<bool> IsReplicaSetMember()
     {
         try
         {
             var client = new MongoClient(_connectionString);
             var db = client.GetDatabase("admin");
-            var result = await db.RunCommandAsync<dynamic>(new MongoDB.Bson.BsonDocument("isMaster", 1));
-            return result.setName != null;
+            var command = new MongoDB.Bson.BsonDocument("isMaster", 1);
+            var result = await db.RunCommandAsync<MongoDB.Bson.BsonDocument>(command);
+
+            // Check multiple indicators of replica set membership
+            bool isReplicaSet = result.Contains("setName") ||
+                               (result.Contains("isreplicaset") && result["isreplicaset"].AsBoolean) ||
+                               (result.Contains("hosts") && result["hosts"].AsBsonArray.Count > 0);
+
+            if (isReplicaSet)
+            {
+                AnsiConsole.MarkupLine("[blue]Detected as replica set member[/]");
+            }
+            else
+            {
+                AnsiConsole.MarkupLine("[yellow]Not detected as replica set member[/]");
+            }
+
+            return isReplicaSet;
         }
-        catch
+        catch (Exception ex)
         {
+            AnsiConsole.MarkupLine($"[red]Error checking replica set status: {ex.Message}[/]");
+            AnsiConsole.MarkupLine($"[grey]Stack trace: {ex.StackTrace}[/]");
             return false;
         }
     }
@@ -44,13 +70,24 @@ public class MongoBackupService
         var args = new List<string>
         {
             "--archive=" + outputPath,
-            "--gzip",
-            $"--host={_host}",
-            $"--port={_port}",
-            $"--username={_username}",
-            $"--password={_password}",
-            "--authenticationDatabase=admin"
+            "--gzip"
         };
+
+        if (_useConnectionString)
+        {
+            args.Add($"--uri=\"{_connectionString}\"");
+        }
+        else
+        {
+            args.AddRange(
+            [
+                $"--host={_host}",
+                $"--port={_port}",
+                $"--username={_username}",
+                $"--password={_password}",
+                "--authenticationDatabase=admin"
+            ]);
+        }
 
         if (includeOplog)
         {
@@ -100,16 +137,16 @@ public class MongoBackupService
             if (!string.IsNullOrEmpty(e.Data))
             {
                 errorBuilder.AppendLine(e.Data);
-                // Escape any special characters that could be interpreted as markup
+
                 var escapedData = e.Data.Replace("[", "[[").Replace("]", "]]");
-                AnsiConsole.MarkupLine($"[yellow]{escapedData}[/]");
+                AnsiConsole.MarkupLine($"[red]{escapedData}[/]");
             }
         };
 
-        process.Start();
-        process.BeginOutputReadLine();
-        process.BeginErrorReadLine();
-        await process.WaitForExitAsync();
+            process.Start();
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
+            await process.WaitForExitAsync();
 
         if (process.ExitCode != 0)
         {
