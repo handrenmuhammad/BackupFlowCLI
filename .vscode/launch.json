@@ -1,0 +1,42 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "List Backup Debug",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build",
+            "program": "${workspaceFolder}/bin/Debug/net9.0/DbBackupCLI.dll",
+            "args": [
+                "backup",
+                "--type",
+                "mongodb",
+                "--host",
+                "localhost",
+                "--port",
+                "27017",
+                "--username",
+                "guest",
+                "--password",
+                "guest",
+                "--s3-endpoint",
+                "localhost:9000",
+                "--s3-access-key",
+                "guest",
+                "--s3-secret-key",
+                "password",
+                "--s3-bucket",
+                "dev",
+                "--prefix",
+                "mongo/community/full-backups",
+                "--oplog"
+            ],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal", // Changed to see output better
+            "stopAtEntry": false,
+            "env": {
+                "ASPNETCORE_ENVIRONMENT": "Development"
+            }
+        }
+    ]
+}
