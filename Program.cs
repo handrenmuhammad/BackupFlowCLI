@@ -21,9 +21,9 @@ public class Program
         var backupCommand = new Command("backup", "Creates a backup of the specified database and uploads it to S3");
         var restoreCommand = new Command("restore", @"Restores a backup of the specified database from S3.
         Examples:
-          dbbackup restore --type=mongodb --s3-endpoint=s3.amazonaws.com --s3-access-key=YOUR_ACCESS_KEY --s3-secret-key=YOUR_SECRET_KEY --s3-bucket=my-backup-bucket
+          dbbackup restore --type=mongodb --s3-endpoint=s3.amazonaws.com --s3-access-key=YOUR_ACCESS_KEY --s3-secret-key=YOUR_SECRET_KEY --s3-bucket=my-backup-bucket --prefix=prod/
           dbbackup restore --type=mongodb --connection-string=""mongodb://localhost:27017"" --s3-endpoint=s3.amazonaws.com --s3-access-key=YOUR_ACCESS_KEY --s3-secret-key=YOUR_SECRET_KEY --s3-bucket=my-backup-bucket
-          dbbackup restore --type=mongodb --host=localhost --port=27017 --username=admin --password=password --databases=mydb1 mydb2 --s3-endpoint=s3.amazonaws.com --s3-access-key=YOUR_ACCESS_KEY --s3-secret-key=YOUR_SECRET_KEY --s3-bucket=my-backup-bucket --prefix=prod/
+          dbbackup restore --type=postgresql --connection-string=""postgresql://localhost:5432"" --s3-endpoint=s3.amazonaws.com --s3-access-key=YOUR_ACCESS_KEY --s3-secret-key=YOUR_SECRET_KEY --s3-bucket=my-backup-bucket
         ");
         var listCommand = new Command("list", @"Lists all database backups from S3.
         Examples:
@@ -32,58 +32,94 @@ public class Program
           dbbackup list --type=mongodb --latest-only --s3-endpoint=s3.amazonaws.com --s3-access-key=YOUR_ACCESS_KEY --s3-secret-key=YOUR_SECRET_KEY --s3-bucket=my-backup-bucket
         ");
 
-        var dbTypeOption = new Option<string>(
-            "--type",
-            description: "Database type (mongodb or postgresql)",
-            getDefaultValue: () => "mongodb"
-        );
-        dbTypeOption.AddAlias("-t");
+        // Database options
+        var typeOption = new Option<string>(
+            aliases: new[] { "-t", "--type" },
+            description: "Database type (mongodb or postgresql)")
+        { IsRequired = true };
 
-        var hostOption = new Option<string>("--host", description: "Database host", getDefaultValue: () => "localhost");
-        hostOption.AddAlias("-h");
+        var connectionStringOption = new Option<string>(
+            aliases: new[] { "-c", "--connection-string" },
+            description: "MongoDB connection string");
 
-        var portOption = new Option<int>("--port", description: "Database port", getDefaultValue: () => 27017);
-        portOption.AddAlias("-p");
+        var hostOption = new Option<string>(
+            aliases: new[] { "-h", "--host" },
+            description: "Database host");
 
-        var usernameOption = new Option<string>("--username", description: "Database username") { IsRequired = false };
-        usernameOption.AddAlias("-u");
+        var portOption = new Option<int>(
+            aliases: new[] { "--port" },
+            description: "Database port");
 
-        var passwordOption = new Option<string>("--password", description: "Database password") { IsRequired = false };
-        passwordOption.AddAlias("-P");
+        var usernameOption = new Option<string>(
+            aliases: new[] { "-u", "--username" },
+            description: "Database username");
+
+        var passwordOption = new Option<string>(
+            aliases: new[] { "--password" },
+            description: "Database password");
 
         var databasesOption = new Option<string[]>("--databases", description: "Specific databases to backup (if not specified, all databases will be backed up)") { AllowMultipleArgumentsPerToken = true };
         databasesOption.AddAlias("-d");
 
-        var includeOplogOption = new Option<bool>("--oplog", description: "Include oplog in the backup for point-in-time recovery (MongoDB only)") { IsRequired = false };
-        includeOplogOption.AddAlias("-o");
+        var incrementalOption = new Option<bool>(
+            aliases: new[] { "-i", "--incremental" },
+            description: "Include incremental changes for point-in-time recovery capabilities");
 
-        var connectionStringOption = new Option<string>("--connection-string", description: "The connection string to use for the database") { IsRequired = false };
-        connectionStringOption.AddAlias("-c");
+        var intervalOption = new Option<int>("--interval", description: "Interval in minutes for continuous oplog backup") { IsRequired = false };
+        intervalOption.SetDefaultValue(10);
 
-        var s3EndpointOption = new Option<string>("--s3-endpoint", description: "S3 endpoint (e.g., 's3.amazonaws.com' or your custom endpoint)") { IsRequired = true };
-        var s3AccessKeyOption = new Option<string>("--s3-access-key", description: "AWS Access Key ID or compatible S3 access key") { IsRequired = true };
-        var s3SecretKeyOption = new Option<string>("--s3-secret-key", description: "AWS Secret Access Key or compatible S3 secret key") { IsRequired = true };
-        var s3BucketOption = new Option<string>("--s3-bucket", description: "The S3 bucket name containing the backups") { IsRequired = true };
-        var prefixOption = new Option<string>("--prefix", description: "Optional prefix to filter backups (e.g., 'prod/' or 'dev/')") { IsRequired = false };
+        // S3 options
+        var s3EndpointOption = new Option<string>(
+            aliases: new[] { "-e", "--s3-endpoint" },
+            description: "S3 endpoint URL")
+        { IsRequired = true };
+
+        var s3AccessKeyOption = new Option<string>(
+            aliases: new[] { "-k", "--s3-access-key" },
+            description: "S3 access key")
+        { IsRequired = true };
+
+        var s3SecretKeyOption = new Option<string>(
+            aliases: new[] { "-s", "--s3-secret-key" },
+            description: "S3 secret key")
+        { IsRequired = true };
+
+        var s3BucketOption = new Option<string>(
+            aliases: new[] { "-b", "--s3-bucket" },
+            description: "S3 bucket name")
+        { IsRequired = true };
+
+        var prefixOption = new Option<string>(
+            aliases: new[] { "--prefix" },
+            description: "Backup prefix/path in bucket")
+        { IsRequired = true };
+
+        var pgBackupTypeOption = new Option<string>(
+            "--pg-backup-type",
+            description: "PostgreSQL backup type (basebackup or dump)"
+        );
+        pgBackupTypeOption.SetDefaultValue("dump");
+        pgBackupTypeOption.AddAlias("-t");
         var latestOnlyOption = new Option<bool>("--latest-only", description: "Show only the latest backup's database names", getDefaultValue: () => false);
-
+        latestOnlyOption.AddAlias("-l");
         // backup command options
-        backupCommand.AddOption(dbTypeOption);
+        backupCommand.AddOption(typeOption);
         backupCommand.AddOption(hostOption);
         backupCommand.AddOption(portOption);
         backupCommand.AddOption(usernameOption);
         backupCommand.AddOption(passwordOption);
         backupCommand.AddOption(databasesOption);
-        backupCommand.AddOption(includeOplogOption);
+        backupCommand.AddOption(incrementalOption);
         backupCommand.AddOption(s3EndpointOption);
         backupCommand.AddOption(s3AccessKeyOption);
         backupCommand.AddOption(s3SecretKeyOption);
         backupCommand.AddOption(s3BucketOption);
         backupCommand.AddOption(prefixOption);
         backupCommand.AddOption(connectionStringOption);
-
+        backupCommand.AddOption(pgBackupTypeOption);
+        backupCommand.AddOption(intervalOption);
         // list command options
-        listCommand.AddOption(dbTypeOption);
+        listCommand.AddOption(typeOption);
         listCommand.AddOption(latestOnlyOption);
         listCommand.AddOption(s3EndpointOption);
         listCommand.AddOption(s3AccessKeyOption);
@@ -97,106 +133,219 @@ public class Program
 
         backupCommand.SetHandler(async (context) =>
         {
-            var dbType = context.ParseResult.GetValueForOption<string>(dbTypeOption)!;
-            var host = context.ParseResult.GetValueForOption<string>(hostOption)!;
-            var port = context.ParseResult.GetValueForOption<int>(portOption);
-            var username = context.ParseResult.GetValueForOption<string>(usernameOption)!;
-            var password = context.ParseResult.GetValueForOption<string>(passwordOption)!;
-            var databases = context.ParseResult.GetValueForOption<string[]>(databasesOption);
-            var includeOplog = context.ParseResult.GetValueForOption<bool>(includeOplogOption);
-            var s3Endpoint = context.ParseResult.GetValueForOption<string>(s3EndpointOption)!;
-            var s3AccessKey = context.ParseResult.GetValueForOption<string>(s3AccessKeyOption)!;
-            var s3SecretKey = context.ParseResult.GetValueForOption<string>(s3SecretKeyOption)!;
-            var s3Bucket = context.ParseResult.GetValueForOption<string>(s3BucketOption)!;
-            var prefix = context.ParseResult.GetValueForOption<string>(prefixOption)!;
-            var connectionString = context.ParseResult.GetValueForOption<string>(connectionStringOption)!;
 
-            await CreateBackup(context.Console, dbType, host, port, username, password, databases, includeOplog, s3Endpoint, s3AccessKey, s3SecretKey, s3Bucket, prefix, connectionString);
+
+            var backupOptions = new BackupOptions()
+            {
+                DbType = context.ParseResult.GetValueForOption<string>(typeOption)!,
+                Host = context.ParseResult.GetValueForOption<string>(hostOption)!,
+                Port = context.ParseResult.GetValueForOption<int>(portOption),
+                Username = context.ParseResult.GetValueForOption<string>(usernameOption)!,
+                Password = context.ParseResult.GetValueForOption<string>(passwordOption)!,
+                Databases = context.ParseResult.GetValueForOption<string[]>(databasesOption),
+                Incremental = context.ParseResult.GetValueForOption<bool>(incrementalOption),
+                S3Endpoint = context.ParseResult.GetValueForOption<string>(s3EndpointOption)!,
+                S3AccessKey = context.ParseResult.GetValueForOption<string>(s3AccessKeyOption)!,
+                S3SecretKey = context.ParseResult.GetValueForOption<string>(s3SecretKeyOption)!,
+                S3Bucket = context.ParseResult.GetValueForOption<string>(s3BucketOption)!,
+                Prefix = context.ParseResult.GetValueForOption<string>(prefixOption)!,
+                ConnectionString = context.ParseResult.GetValueForOption<string>(connectionStringOption)!,
+                PgBackupType = context.ParseResult.GetValueForOption<string>(pgBackupTypeOption)!,
+                Interval = context.ParseResult.GetValueForOption<int>(intervalOption)
+            };
+
+            if (backupOptions.DbType == "postgresql" && backupOptions.PgBackupType == "dump" && backupOptions.Incremental)
+            {
+                AnsiConsole.MarkupLine("[red]Error: incremental restore is not supported for PostgreSQL dump backup type[/]");
+                Environment.Exit(1);
+            }
+
+            if (!string.IsNullOrEmpty(backupOptions.ConnectionString))
+            {
+                if (!string.IsNullOrEmpty(backupOptions.Host) || backupOptions.Port != 0 || !string.IsNullOrEmpty(backupOptions.Username) || !string.IsNullOrEmpty(backupOptions.Password))
+                {
+                    AnsiConsole.MarkupLine("[red]Error: when using connection-string, host, port, username and password should not be provided[/]");
+                    Environment.Exit(1);
+                }
+            }
+            if (!backupOptions.UseConnectionString)
+            {
+                if (string.IsNullOrEmpty(backupOptions.Host) || backupOptions.Port == 0 || string.IsNullOrEmpty(backupOptions.Username) || string.IsNullOrEmpty(backupOptions.Password))
+                {
+                    AnsiConsole.MarkupLine("[red]Error: host, port, username and password are required when using connection-string is not provided[/]");
+                    Environment.Exit(1);
+                }
+            }
+
+            await CreateBackup(backupOptions);
         });
 
         listCommand.SetHandler(async (context) =>
         {
-            var dbType = context.ParseResult.GetValueForOption<string>(dbTypeOption)!;
-            var latestOnly = context.ParseResult.GetValueForOption<bool>(latestOnlyOption);
-            var s3Endpoint = context.ParseResult.GetValueForOption<string>(s3EndpointOption)!;
-            var s3AccessKey = context.ParseResult.GetValueForOption<string>(s3AccessKeyOption)!;
-            var s3SecretKey = context.ParseResult.GetValueForOption<string>(s3SecretKeyOption)!;
-            var s3Bucket = context.ParseResult.GetValueForOption<string>(s3BucketOption)!;
-            var prefix = context.ParseResult.GetValueForOption<string>(prefixOption)!;
-            await ListBackups(context.Console, dbType, latestOnly, s3Endpoint, s3AccessKey, s3SecretKey, s3Bucket, prefix);
+            var listOptions = new ListOptions()
+            {
+                DbType = context.ParseResult.GetValueForOption<string>(typeOption)!,
+                LatestOnly = context.ParseResult.GetValueForOption<bool>(latestOnlyOption),
+                S3Endpoint = context.ParseResult.GetValueForOption<string>(s3EndpointOption)!,
+                S3AccessKey = context.ParseResult.GetValueForOption<string>(s3AccessKeyOption)!,
+                S3SecretKey = context.ParseResult.GetValueForOption<string>(s3SecretKeyOption)!,
+                S3Bucket = context.ParseResult.GetValueForOption<string>(s3BucketOption)!,
+                Prefix = context.ParseResult.GetValueForOption<string>(prefixOption)!
+            };
+            await ListBackups(listOptions);
         });
 
         // restore command options
-        restoreCommand.AddOption(dbTypeOption);
+        restoreCommand.AddOption(typeOption);
         restoreCommand.AddOption(hostOption);
         restoreCommand.AddOption(portOption);
         restoreCommand.AddOption(usernameOption);
         restoreCommand.AddOption(passwordOption);
         restoreCommand.AddOption(databasesOption);
-        restoreCommand.AddOption(includeOplogOption);
+        restoreCommand.AddOption(incrementalOption);
         restoreCommand.AddOption(s3EndpointOption);
         restoreCommand.AddOption(s3AccessKeyOption);
         restoreCommand.AddOption(s3SecretKeyOption);
         restoreCommand.AddOption(s3BucketOption);
         restoreCommand.AddOption(prefixOption);
         restoreCommand.AddOption(connectionStringOption);
-
         restoreCommand.SetHandler(async (context) =>
         {
-            var dbType = context.ParseResult.GetValueForOption<string>(dbTypeOption)!;
-            var host = context.ParseResult.GetValueForOption<string>(hostOption)!;
-            var port = context.ParseResult.GetValueForOption<int>(portOption);
-            var username = context.ParseResult.GetValueForOption<string>(usernameOption)!;
-            var password = context.ParseResult.GetValueForOption<string>(passwordOption)!;
-            var databases = context.ParseResult.GetValueForOption<string[]>(databasesOption);
-            var includeOplog = context.ParseResult.GetValueForOption<bool>(includeOplogOption);
-            var s3Endpoint = context.ParseResult.GetValueForOption<string>(s3EndpointOption)!;
-            var s3AccessKey = context.ParseResult.GetValueForOption<string>(s3AccessKeyOption)!;
-            var s3SecretKey = context.ParseResult.GetValueForOption<string>(s3SecretKeyOption)!;
-            var s3Bucket = context.ParseResult.GetValueForOption<string>(s3BucketOption)!;
-            var prefix = context.ParseResult.GetValueForOption<string>(prefixOption)!;
-            var connectionString = context.ParseResult.GetValueForOption<string>(connectionStringOption)!;
+            var restoreOptions = new BackupOptions()
+            {
+                DbType = context.ParseResult.GetValueForOption<string>(typeOption)!,
+                ConnectionString = context.ParseResult.GetValueForOption<string>(connectionStringOption)!,
+                Host = context.ParseResult.GetValueForOption<string>(hostOption)!,
+                Port = context.ParseResult.GetValueForOption<int>(portOption),
+                Username = context.ParseResult.GetValueForOption<string>(usernameOption)!,
+                Password = context.ParseResult.GetValueForOption<string>(passwordOption)!,
+                S3Endpoint = context.ParseResult.GetValueForOption<string>(s3EndpointOption)!,
+                S3AccessKey = context.ParseResult.GetValueForOption<string>(s3AccessKeyOption)!,
+                S3SecretKey = context.ParseResult.GetValueForOption<string>(s3SecretKeyOption)!,
+                S3Bucket = context.ParseResult.GetValueForOption<string>(s3BucketOption)!,
+                Prefix = context.ParseResult.GetValueForOption<string>(prefixOption)!,
+                Databases = context.ParseResult.GetValueForOption<string[]>(databasesOption),
+                Incremental = context.ParseResult.GetValueForOption<bool>(incrementalOption),
+            };
 
-            await RestoreBackup(context.Console, dbType, host, port, username, password, databases, includeOplog, s3Endpoint, s3AccessKey, s3SecretKey, s3Bucket, prefix, connectionString);
+            if (!string.IsNullOrEmpty(restoreOptions.ConnectionString))
+            {
+                if (!string.IsNullOrEmpty(restoreOptions.Host) || restoreOptions.Port != 0 || !string.IsNullOrEmpty(restoreOptions.Username) || !string.IsNullOrEmpty(restoreOptions.Password))
+                {
+                    AnsiConsole.MarkupLine("[red]Error: only one of connection-string or host, port, username and password should be provided[/]");
+                    Environment.Exit(1);
+                }
+            }
+            if (restoreOptions.DbType == "postgresql" && restoreOptions.Incremental)
+            {
+                AnsiConsole.MarkupLine("[red]Error: Currently incremental restore is not supported for PostgreSQL[/]");
+                Environment.Exit(1);
+            }
+            if (!restoreOptions.UseConnectionString)
+            {
+                if (string.IsNullOrEmpty(restoreOptions.Host) || restoreOptions.Port == 0 || string.IsNullOrEmpty(restoreOptions.Username) || string.IsNullOrEmpty(restoreOptions.Password))
+                {
+                    AnsiConsole.MarkupLine("[red]Error: host, port, username and password are required when using connection-string is not provided[/]");
+                    Environment.Exit(1);
+                }
+            }
+
+            await RestoreBackup(restoreOptions);
         });
+
+        backupCommand.Description = $$"""
+[1;36mBackup a database to S3-compatible storage.[0m
+
+[1;33mUSAGE:[0m
+  dbbackup backup --type <mongodb|postgresql> [options]
+
+[1;33mOPTIONS:[0m
+  [1;32m-t, --type[0m                     [1;31mRequired.[0m Database type (mongodb or postgresql)
+  [1;32m-c, --connection-string[0m        MongoDB connection string (for MongoDB only)
+  [1;32m-h, --host[0m                     Database host (for PostgreSQL only)
+  [1;32m--port[0m                         Database port (for PostgreSQL only)
+  [1;32m-u, --username[0m                 Database username (for PostgreSQL only)
+  [1;32m--password[0m                     Database password (for PostgreSQL only)
+  [1;32m-e, --s3-endpoint[0m             [1;31mRequired.[0m S3 endpoint URL
+  [1;32m-k, --s3-access-key[0m           [1;31mRequired.[0m S3 access key
+  [1;32m-s, --s3-secret-key[0m           [1;31mRequired.[0m S3 secret key
+  [1;32m-b, --s3-bucket[0m               [1;31mRequired.[0m S3 bucket name
+  [1;32m--prefix[0m                      [1;31mRequired.[0m Backup prefix/path in bucket
+  [1;32m-i, --incremental[0m             Include incremental changes for point-in-time recovery capabilities
+
+[1;33mEXAMPLES:[0m
+  [1;35mMongoDB:[0m
+    dbbackup backup -t mongodb -c mongodb://localhost:27017 -e localhost:9000 -k guest -s password -b dev --prefix mongo/backups -i
+
+  [1;35mPostgreSQL:[0m
+    dbbackup backup -t postgresql -h localhost --port 5432 -u guest --password guest -e localhost:9000 -k guest -s password -b dev --prefix postgres/backups -i
+""";
+
+        restoreCommand.Description = $$"""
+[1;36mRestore a database from S3-compatible storage.[0m
+
+[1;33mUSAGE:[0m
+  dbbackup restore --type <mongodb|postgresql> [options]
+
+[1;33mOPTIONS:[0m
+  [1;32m-t, --type[0m                     [1;31mRequired.[0m Database type (mongodb or postgresql)
+  [1;32m-c, --connection-string[0m        MongoDB connection string (for MongoDB only)
+  [1;32m-h, --host[0m                     Database host (for PostgreSQL only)
+  [1;32m--port[0m                         Database port (for PostgreSQL only)
+  [1;32m-u, --username[0m                 Database username (for PostgreSQL only)
+  [1;32m--password[0m                     Database password (for PostgreSQL only)
+  [1;32m--database[0m                     Database name to restore (for PostgreSQL only)
+  [1;32m-e, --s3-endpoint[0m             [1;31mRequired.[0m S3 endpoint URL
+  [1;32m-k, --s3-access-key[0m           [1;31mRequired.[0m S3 access key
+  [1;32m-s, --s3-secret-key[0m           [1;31mRequired.[0m S3 secret key
+  [1;32m-b, --s3-bucket[0m               [1;31mRequired.[0m S3 bucket name
+  [1;32m--prefix[0m                      [1;31mRequired.[0m Backup prefix/path in bucket
+  [1;32m-i, --incremental[0m             Include incremental changes in the restore process
+
+[1;33mEXAMPLES:[0m
+  [1;35mMongoDB:[0m
+    dbbackup restore -t mongodb -c mongodb://localhost:27017 -e localhost:9000 -k guest -s password -b dev --prefix mongo/backups -i
+
+  [1;35mPostgreSQL:[0m
+    dbbackup restore -t postgresql -h localhost --port 5432 -u guest --password guest --database mydb -e localhost:9000 -k guest -s password -b dev --prefix postgres/backups -i
+""";
 
         return await rootCommand.InvokeAsync(args);
     }
 
-    public static async Task CreateBackup(IConsole console, string dbType, string host, int port, string username, string password, string[]? databases, bool includeOplog, string s3Endpoint, string s3AccessKey, string s3SecretKey, string s3Bucket, string prefix, string connectionString)
+    public static async Task CreateBackup(BackupOptions backupOptions)
     {
         try
         {
-            AnsiConsole.MarkupLine($"[yellow]Creating {dbType} backup...[/]");
+            AnsiConsole.MarkupLine($"[yellow]Creating {backupOptions.DbType} backup...[/]");
 
             string backupPath;
             DateTime timestamp;
 
-            switch (dbType.ToLower())
+            switch (backupOptions.DbType.ToLower())
             {
                 case "mongodb":
                     MongoOplogBackupService? oplogBackupService = null;
                     try
                     {
-                        if (!string.IsNullOrEmpty(connectionString))
+                        if (backupOptions.UseConnectionString)
                         {
-                            var mongoBackupService = new MongoBackupService(connectionString);
-                            (backupPath, timestamp) = await mongoBackupService.CreateBackup(databases ?? Array.Empty<string>(), includeOplog);
+                            var mongoBackupService = new MongoBackupService(backupOptions.ConnectionString!);
+                            (backupPath, timestamp) = await mongoBackupService.CreateBackup(backupOptions.Databases ?? Array.Empty<string>(), backupOptions.Incremental);
 
-                            AnsiConsole.MarkupLine($"[green]Backup created successfully at: {backupPath}[/]");
-
-                            if (includeOplog)
+                            if (backupOptions.Incremental)
                             {
                                 if (await mongoBackupService.IsReplicaSetMember())
                                 {
                                     oplogBackupService = new MongoOplogBackupService(
-                                        connectionString,
-                                        s3Endpoint,
-                                        s3AccessKey,
-                                        s3SecretKey,
-                                        s3Bucket,
-                                        prefix,
-                                        useConnectionString: !string.IsNullOrEmpty(connectionString)
+                                        backupOptions.ConnectionString!,
+                                        backupOptions.S3Endpoint,
+                                        backupOptions.S3AccessKey,
+                                        backupOptions.S3SecretKey,
+                                        backupOptions.S3Bucket,
+                                        backupOptions.Prefix,
+                                        intervalMinutes: backupOptions.Interval,
+                                        useConnectionString: backupOptions.UseConnectionString
                                     );
                                     AnsiConsole.MarkupLine("[blue]Including oplog in backup for point-in-time recovery[/]");
                                 }
@@ -208,24 +357,25 @@ public class Program
                         }
                         else
                         {
-                            var mongoBackupService = new MongoBackupService(host, port, username, password);
-                            (backupPath, timestamp) = await mongoBackupService.CreateBackup(databases ?? Array.Empty<string>(), includeOplog);
+                            var mongoBackupService = new MongoBackupService(backupOptions.Host!, backupOptions.Port, backupOptions.Username!, backupOptions.Password!);
+                            (backupPath, timestamp) = await mongoBackupService.CreateBackup(backupOptions.Databases ?? Array.Empty<string>(), backupOptions.Incremental);
 
-                            if (includeOplog)
+                            if (backupOptions.Incremental)
                             {
                                 if (await mongoBackupService.IsReplicaSetMember())
                                 {
                                     oplogBackupService = new MongoOplogBackupService(
-                                        host,
-                                        port,
-                                        username,
-                                        password,
-                                        s3Endpoint,
-                                        s3AccessKey,
-                                        s3SecretKey,
-                                        s3Bucket,
-                                        prefix,
-                                        useConnectionString: !string.IsNullOrEmpty(connectionString)
+                                        backupOptions.Host!,
+                                        backupOptions.Port,
+                                        backupOptions.Username!,
+                                        backupOptions.Password!,
+                                        backupOptions.S3Endpoint,
+                                        backupOptions.S3AccessKey,
+                                        backupOptions.S3SecretKey,
+                                        backupOptions.S3Bucket,
+                                        backupOptions.Prefix,
+                                        intervalMinutes: backupOptions.Interval,
+                                        useConnectionString: backupOptions.UseConnectionString
                                     );
                                     AnsiConsole.MarkupLine("[blue]Including oplog in backup for point-in-time recovery[/]");
                                 }
@@ -238,20 +388,20 @@ public class Program
 
                         AnsiConsole.MarkupLine($"[green]Backup created successfully at: {backupPath}[/]");
 
-                        // Upload to S3
+
                         AnsiConsole.MarkupLine("[yellow]Uploading backup to S3...[/]");
-                        var s3Service = new S3Service(s3Endpoint, s3AccessKey, s3SecretKey);
+                        var s3Service = new S3Service(backupOptions.S3Endpoint, backupOptions.S3AccessKey, backupOptions.S3SecretKey);
 
-                        // Ensure bucket exists
-                        await s3Service.EnsureBucketExistsAsync(s3Bucket);
+                        // check if bucket exists
+                        await s3Service.EnsureBucketExistsAsync(backupOptions.S3Bucket);
 
-                        var s3Key = $"{prefix?.TrimEnd('/')}/{Path.GetFileName(backupPath)}";
+                        var s3Key = $"{backupOptions.Prefix?.TrimEnd('/')}/{Path.GetFileName(backupPath)}";
 
                         await using (var fileStream = File.OpenRead(backupPath))
                         {
                             var putObjectRequest = new PutObjectRequest
                             {
-                                BucketName = s3Bucket,
+                                BucketName = backupOptions.S3Bucket,
                                 Key = s3Key,
                                 InputStream = fileStream
                             };
@@ -261,7 +411,7 @@ public class Program
 
                         AnsiConsole.MarkupLine($"[green]Backup uploaded successfully to S3: {s3Key}[/]");
 
-                        // Start continuous oplog backup if requested
+                        // Start continuous oplog backup if incremental backup is requested
                         if (oplogBackupService != null)
                         {
                             await oplogBackupService.StartContinuousBackup();
@@ -302,32 +452,69 @@ public class Program
                     try
                     {
                         PostgresBackupService postgresBackupService;
-                        if (!string.IsNullOrEmpty(connectionString))
+                        PostgresWalBackupService? walBackupService = null;
+
+                        if (backupOptions.UseConnectionString)
                         {
-                            postgresBackupService = new PostgresBackupService(connectionString);
+                            postgresBackupService = new PostgresBackupService(backupOptions.ConnectionString!);
+                            if (backupOptions.Incremental)
+                            {
+                                walBackupService = new PostgresWalBackupService(
+                                    backupOptions.ConnectionString!,
+                                    backupOptions.S3Endpoint,
+                                    backupOptions.S3AccessKey,
+                                    backupOptions.S3SecretKey,
+                                    backupOptions.S3Bucket,
+                                    backupOptions.Prefix,
+                                    intervalMinutes: backupOptions.Interval,
+                                    useConnectionString: backupOptions.UseConnectionString
+                                );
+                            }
                         }
                         else
                         {
-                            postgresBackupService = new PostgresBackupService(host, port, username, password);
+                            postgresBackupService = new PostgresBackupService(backupOptions.Host!, backupOptions.Port, backupOptions.Username!, backupOptions.Password!);
+                            if (backupOptions.Incremental)
+                            {
+                                walBackupService = new PostgresWalBackupService(
+                                    backupOptions.Host!,
+                                    backupOptions.Port,
+                                    backupOptions.Username!,
+                                    backupOptions.Password!,
+                                    backupOptions.S3Endpoint,
+                                    backupOptions.S3AccessKey,
+                                    backupOptions.S3SecretKey,
+                                    backupOptions.S3Bucket,
+                                    backupOptions.Prefix,
+                                    intervalMinutes: backupOptions.Interval,
+                                    useConnectionString: backupOptions.UseConnectionString
+                                );
+                            }
                         }
 
-                        (backupPath, timestamp) = await postgresBackupService.CreateBackup();
+                        var backupType = backupOptions.PgBackupType!.ToLower() == "dump" ? PostgresBackupType.Dump : PostgresBackupType.BaseBackup;
+
+                        (backupPath, timestamp) = await postgresBackupService.CreateBackup(
+                            backupType: backupType,
+                            includeWal: backupOptions.Incremental,
+                            databases: backupOptions.Databases
+                        );
+
                         AnsiConsole.MarkupLine($"[green]Backup created successfully at: {backupPath}[/]");
 
-                        // Upload to S3
                         AnsiConsole.MarkupLine("[yellow]Uploading backup to S3...[/]");
-                        var s3Service = new S3Service(s3Endpoint, s3AccessKey, s3SecretKey);
+                        var s3Service = new S3Service(backupOptions.S3Endpoint, backupOptions.S3AccessKey, backupOptions.S3SecretKey);
 
-                        // Ensure bucket exists
-                        await s3Service.EnsureBucketExistsAsync(s3Bucket);
+                        // check if bucket exists
+                        await s3Service.EnsureBucketExistsAsync(backupOptions.S3Bucket);
 
-                        var s3Key = $"{prefix?.TrimEnd('/')}/{Path.GetFileName(backupPath)}";
+                        var s3Key = $"{backupOptions.Prefix?.TrimEnd('/')}/{Path.GetFileName(backupPath)}";
 
                         await using (var fileStream = File.OpenRead(backupPath))
                         {
                             var putObjectRequest = new PutObjectRequest
                             {
-                                BucketName = s3Bucket,
+                                BucketName = backupOptions.S3Bucket,
                                 Key = s3Key,
                                 InputStream = fileStream
                             };
@@ -336,6 +523,27 @@ public class Program
                         }
 
                         AnsiConsole.MarkupLine($"[green]Backup uploaded successfully to S3: {s3Key}[/]");
+
+                        // start continuous WAL archiving if requested and if using basebackup
+                        if (walBackupService != null && backupType == PostgresBackupType.BaseBackup)
+                        {
+                            await walBackupService.StartContinuousBackup();
+                            AnsiConsole.MarkupLine("[green]Press Ctrl+C to stop the continuous WAL archiving[/]");
+
+                            // Handle graceful shutdown
+                            Console.CancelKeyPress += (sender, e) =>
+                            {
+                                e.Cancel = true; // Prevent the process from terminating immediately
+                                AnsiConsole.MarkupLine("[yellow]Stopping continuous WAL archiving...[/]");
+                                walBackupService.Dispose();
+                                AnsiConsole.MarkupLine("[green]Continuous WAL archiving stopped[/]");
+                            };
+
+                            // Keep the application running
+                            var tcs = new TaskCompletionSource();
+                            Console.CancelKeyPress += (sender, e) => tcs.SetResult();
+                            await tcs.Task;
+                        }
 
                         // Cleanup temporary file
                         try
@@ -355,7 +563,7 @@ public class Program
                     break;
 
                 default:
-                    throw new ArgumentException($"Unsupported database type: {dbType}");
+                    throw new ArgumentException($"Unsupported database type: {backupOptions.DbType}");
             }
         }
         catch (Exception ex)
@@ -365,43 +573,62 @@ public class Program
         }
     }
 
-    public static async Task ListBackups(IConsole console, string dbType, bool latestOnly, string s3Endpoint, string s3AccessKey, string s3SecretKey, string s3Bucket, string prefix)
+    public static async Task ListBackups(ListOptions listOptions)
     {
         try
         {
-            var s3Service = new S3Service(s3Endpoint, s3AccessKey, s3SecretKey);
-            IBackupAnalyzer backupAnalyzer = dbType.ToLower() switch
+            var s3Service = new S3Service(listOptions.S3Endpoint, listOptions.S3AccessKey, listOptions.S3SecretKey);
+            IBackupAnalyzer backupAnalyzer = listOptions.DbType.ToLower() switch
             {
                 "mongodb" => new MongoBackupAnalyzer(),
-                _ => throw new ArgumentException($"Unsupported database type: {dbType}")
+                "postgresql" => new PostgresBackupAnalyzer(),
+                _ => throw new ArgumentException($"Unsupported database type: {listOptions.DbType}")
             };
 
-            AnsiConsole.MarkupLine($"[yellow]Fetching {dbType} backup list from S3...[/]");
-            AnsiConsole.MarkupLine($"[yellow]Prefix: {prefix}[/]");
-            AnsiConsole.MarkupLine($"[yellow]Bucket: {s3Bucket}[/]");
-            AnsiConsole.MarkupLine($"[yellow]Endpoint: {s3Endpoint}[/]");
-            AnsiConsole.MarkupLine($"[yellow]Access Key: {s3AccessKey}[/]");
-            AnsiConsole.MarkupLine($"[yellow]Secret Key: {s3SecretKey}[/]");
+            AnsiConsole.MarkupLine($"[yellow]Fetching {listOptions.DbType} backup list from S3...[/]");
+            AnsiConsole.MarkupLine($"[yellow]Prefix: {listOptions.Prefix}[/]");
+            AnsiConsole.MarkupLine($"[yellow]Bucket: {listOptions.S3Bucket}[/]");
+            AnsiConsole.MarkupLine($"[yellow]Endpoint: {listOptions.S3Endpoint}[/]");
 
-            var s3Objects = await s3Service.ListObjectsAsync(s3Bucket, prefix);
+            var s3Objects = await s3Service.ListObjectsAsync(listOptions.S3Bucket, listOptions.Prefix);
 
-            if (!s3Objects.S3Objects.Any())
+            if (s3Objects.S3Objects.Count == 0)
             {
                 AnsiConsole.MarkupLine("[red]No backups found.[/]");
                 return;
             }
 
-            var sortedObjects = s3Objects.S3Objects
+            // filter objects based on database type
+            var filteredObjects = s3Objects.S3Objects
+                .Where(x =>
+                {
+                    var fileName = Path.GetFileName(x.Key).ToLower();
+                    return listOptions.DbType.ToLower() switch
+                    {
+                        "postgresql" => fileName.StartsWith("postgres_"),
+                        "mongodb" => !fileName.StartsWith("postgres_"),
+                        _ => true
+                    };
+                })
+                .ToList();
+
+            if (filteredObjects.Count == 0)
+            {
+                AnsiConsole.MarkupLine($"[red]No {listOptions.DbType} backups found.[/]");
+                return;
+            }
+
+            var sortedObjects = filteredObjects
                 .OrderByDescending(x => x.LastModified)
                 .ToList();
 
-            if (latestOnly)
+            if (listOptions.LatestOnly)
             {
                 // if latestOnly is true, then only the latest backup is shown
                 sortedObjects = sortedObjects.Take(1).ToList();
             }
 
-            AnsiConsole.MarkupLine($"[green]Found {(latestOnly ? "latest" : sortedObjects.Count.ToString())} backup{(latestOnly ? "" : "s")}[/]");
+            AnsiConsole.MarkupLine($"[green]Found {(listOptions.LatestOnly ? "latest" : sortedObjects.Count.ToString())} backup{(listOptions.LatestOnly ? "" : "s")}[/]");
 
             await AnsiConsole.Progress()
                 .AutoClear(false)
@@ -414,13 +641,13 @@ public class Program
                 ])
                 .StartAsync(async ctx =>
                 {
-                    var mainTask = ctx.AddTask($"[green]Processing Backup{(latestOnly ? "" : "s")}[/]", maxValue: sortedObjects.Count);
+                    var mainTask = ctx.AddTask($"[green]Processing Backup{(listOptions.LatestOnly ? "" : "s")}[/]", maxValue: sortedObjects.Count);
                     bool hasShownDetailedBackup = false;
 
                     var table = new Table()
                         .Border(TableBorder.Rounded)
                         .BorderColor(Color.Blue)
-                        .Title($"[bold blue]{dbType} Backup Analysis Results{(latestOnly ? " (Latest Only)" : "")}[/]")
+                        .Title($"[bold blue]{listOptions.DbType} Backup Analysis Results{(listOptions.LatestOnly ? " (Latest Only)" : "")}[/]")
                         .Caption("[dim]Completed at " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "[/]");
 
                     table.AddColumn(new TableColumn("[bold]Backup File[/]").Width(25).NoWrap());
@@ -437,7 +664,7 @@ public class Program
 
                         try
                         {
-                            await s3Service.DownloadObjectAsync(s3Bucket, s3Object.Key, tempFile.Path);
+                            await s3Service.DownloadObjectAsync(listOptions.S3Bucket, s3Object.Key, tempFile.Path);
                             processingTask.Increment(50);
 
                             var (timestamp, databases) = await backupAnalyzer.AnalyzeBackup(tempFile.Path);
@@ -451,7 +678,7 @@ public class Program
                                 var dbCount = databases.Count;
                                 if (!hasShownDetailedBackup)
                                 {
-                                    // Show detailed view for the first successful backup (most recent)
+                                    // show detailed view for the first successful backup most recent
                                     var dbList = string.Join("\n", databases.OrderBy(x => x).Select(db => $"  • [dim cyan]{db}[/]"));
                                     table.AddRow(
                                         new Markup($"[green]{shortKey}[/]"),
@@ -463,7 +690,6 @@ public class Program
                                 }
                                 else
                                 {
-                                    // Show compact view for older backups
                                     table.AddRow(
                                         new Markup($"[green]{shortKey}[/]"),
                                         new Markup($"[blue]{age}[/]"),
@@ -551,7 +777,7 @@ public class Program
         else
         {
             var truncatedDir = dirName.Length > (availableLength / 2)
-                ? dirName.Substring(0, Math.Min(dirName.Length, availableLength / 2)) + "..."
+                ? dirName[..Math.Min(dirName.Length, availableLength / 2)] + "..."
                 : dirName;
             var remainingLength = availableLength - truncatedDir.Length - 1; // -1 for path separator
             var truncatedName = nameWithoutExt.Substring(0, Math.Min(nameWithoutExt.Length, remainingLength));
@@ -559,14 +785,14 @@ public class Program
         }
     }
 
-    public static async Task RestoreBackup(IConsole console, string dbType, string host, int port, string username, string password, string[]? databases, bool includeOplog, string s3Endpoint, string s3AccessKey, string s3SecretKey, string s3Bucket, string prefix, string connectionString)
+    public static async Task RestoreBackup(BackupOptions restoreOptions)
     {
         try
         {
-            var s3Service = new S3Service(s3Endpoint, s3AccessKey, s3SecretKey);
+            var s3Service = new S3Service(restoreOptions.S3Endpoint, restoreOptions.S3AccessKey, restoreOptions.S3SecretKey);
 
-            AnsiConsole.MarkupLine($"[yellow]Fetching available {dbType} backups from S3...[/]");
-            var s3Objects = await s3Service.ListObjectsAsync(s3Bucket, prefix);
+            AnsiConsole.MarkupLine($"[yellow]Fetching available {restoreOptions.DbType} backups from S3...[/]");
+            var s3Objects = await s3Service.ListObjectsAsync(restoreOptions.S3Bucket, restoreOptions.Prefix);
 
             if (s3Objects.S3Objects.Count == 0)
             {
@@ -592,32 +818,32 @@ public class Program
             AnsiConsole.MarkupLine($"[yellow]Downloading backup {selection.Key}...[/]");
 
             await using var tempFile = new TempFile();
-            await s3Service.DownloadObjectAsync(s3Bucket, selection.Key, tempFile.Path);
+            await s3Service.DownloadObjectAsync(restoreOptions.S3Bucket, selection.Key, tempFile.Path);
 
-            AnsiConsole.MarkupLine($"[yellow]Restoring {dbType} backup...[/]");
+            AnsiConsole.MarkupLine($"[yellow]Restoring {restoreOptions.DbType} backup...[/]");
 
-            switch (dbType.ToLower())
+            switch (restoreOptions.DbType.ToLower())
             {
                 case "mongodb":
                     MongoRestoreService mongoRestoreService;
-                    if (!string.IsNullOrEmpty(connectionString))
+                    if (restoreOptions.UseConnectionString)
                     {
-                        mongoRestoreService = new MongoRestoreService(connectionString);
+                        mongoRestoreService = new MongoRestoreService(restoreOptions.ConnectionString!);
                     }
                     else
                     {
-                        mongoRestoreService = new MongoRestoreService(host, port, username, password);
+                        mongoRestoreService = new MongoRestoreService(restoreOptions.Host!, restoreOptions.Port, restoreOptions.Username!, restoreOptions.Password!);
                     }
 
                     // first restring the main backup
-                    await mongoRestoreService.RestoreBackup(tempFile.Path, databases, false);
+                    await mongoRestoreService.RestoreBackup(tempFile.Path, restoreOptions.Databases, false);
 
                     // if oplog arg was provided, restore the oplogs as well
-                    if (includeOplog)
+                    if (restoreOptions.Incremental)
                     {
                         // list available oplog backups
-                        var oplogPrefix = $"{prefix?.TrimEnd('/')}/oplogs/";
-                        var oplogObjects = await s3Service.ListObjectsAsync(s3Bucket, oplogPrefix);
+                        var oplogPrefix = $"{restoreOptions.Prefix?.TrimEnd('/')}/oplogs/";
+                        var oplogObjects = await s3Service.ListObjectsAsync(restoreOptions.S3Bucket, oplogPrefix);
                         var sortedOplogObjects = oplogObjects.S3Objects
                             .Where(x => x.LastModified > selection.LastModified) // only get oplogs after the backup time
                             .OrderByDescending(x => x.LastModified)
@@ -642,7 +868,7 @@ public class Program
                             {
                                 await using var oplogTempFile = new TempFile();
                                 AnsiConsole.MarkupLine($"[grey]Applying oplog: {oplog.Key}[/]");
-                                await s3Service.DownloadObjectAsync(s3Bucket, oplog.Key, oplogTempFile.Path);
+                                await s3Service.DownloadObjectAsync(restoreOptions.S3Bucket, oplog.Key, oplogTempFile.Path);
                                 await mongoRestoreService.RestoreOplog(oplogTempFile.Path);
                             }
 
@@ -656,21 +882,15 @@ public class Program
                     break;
 
                 case "postgresql":
-                    PostgresRestoreService postgresRestoreService;
-                    if (!string.IsNullOrEmpty(connectionString))
-                    {
-                        postgresRestoreService = new PostgresRestoreService(connectionString);
-                    }
-                    else
-                    {
-                        postgresRestoreService = new PostgresRestoreService(host, port, username, password);
-                    }
+                    var postgresRestoreService = restoreOptions.UseConnectionString
+                        ? new PostgresRestoreService(restoreOptions.ConnectionString!)
+                        : new PostgresRestoreService(restoreOptions.Host!, restoreOptions.Port, restoreOptions.Username!, restoreOptions.Password!);
 
-                    await postgresRestoreService.RestoreBackup(tempFile.Path);
+                    await postgresRestoreService.RestoreBackup(tempFile.Path, restoreOptions.Databases);
                     break;
 
                 default:
-                    throw new ArgumentException($"Unsupported database type: {dbType}");
+                    throw new ArgumentException($"Unsupported database type: {restoreOptions.DbType}");
             }
 
             AnsiConsole.MarkupLine($"[green]Successfully restored backup: {selection.Key}[/]");
