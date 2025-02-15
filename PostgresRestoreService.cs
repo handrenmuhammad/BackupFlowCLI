@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using Spectre.Console;
 
-namespace DbBackupCLI;
+namespace BackupFlowCLI;
 
 public class PostgresRestoreService
 {

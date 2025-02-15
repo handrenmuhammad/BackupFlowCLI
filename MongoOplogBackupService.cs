@@ -2,7 +2,7 @@ using System.Diagnostics;
 using MongoDB.Driver;
 using Spectre.Console;
 
-namespace DbBackupCLI;
+namespace BackupFlowCLI;
 
 public class MongoOplogBackupService : IDisposable
 {

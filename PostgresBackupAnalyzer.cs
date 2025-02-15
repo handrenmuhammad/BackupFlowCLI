@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Text.RegularExpressions;
 
-namespace DbBackupCLI;
+namespace BackupFlowCLI;
 
 public class PostgresBackupAnalyzer : IBackupAnalyzer
 {

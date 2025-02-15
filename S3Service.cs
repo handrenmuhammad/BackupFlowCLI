@@ -2,7 +2,7 @@ using Amazon.S3;
 using Amazon.S3.Model;
 using Spectre.Console;
 
-namespace DbBackupCLI;
+namespace BackupFlowCLI;
 
 public class S3Service
 {

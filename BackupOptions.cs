@@ -1,6 +1,6 @@
 using System.CommandLine;
 
-namespace DbBackupCLI;
+namespace BackupFlowCLI;
 
 public class BackupOptions
 {
