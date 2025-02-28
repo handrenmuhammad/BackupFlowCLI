@@ -26,3 +26,5 @@ _ReSharper*/
 *~
 .DS_Store
 data/
+
+.fake
